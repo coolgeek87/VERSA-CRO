@@ -1055,7 +1055,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     using SafeERC20 for ERC20;
 
     // The address of the smart craft factory
-    address public SMART_CRAFT_FACTORY;
+    address immutable public SMART_CRAFT_FACTORY;
 
     // Whether a limit is set for users
     bool public hasUserLimit;
@@ -1066,10 +1066,10 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     // Accrued token per share
     uint256 public accTokenPerShare;
 
-    // The block number when stakedToken mining ends.
-    uint256 public bonusEndBlock;
+    // The block number when rewardToken mining ends.
+    uint256 public rewardsEndBlock;
 
-    // The block number when stakedToken mining starts.
+    // The block number when rewardToken mining starts.
     uint256 public startBlock;
 
     // The block number of the last pool update
@@ -1098,7 +1098,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         uint256 rewardDebt; // Reward debt
     }
 
-    event AdminTokenRecovery(address tokenRecovered, uint256 amount);
+    event AdminTokenRecovery(ERC20 tokenRecovered, uint256 amount);
     event Deposit(address indexed user, uint256 amount);
     event EmergencyWithdraw(address indexed user, uint256 amount);
     event EmergencyRewardWithdraw(address indexed user, uint256 amount);
@@ -1118,7 +1118,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      * @param _rewardToken: reward token address
      * @param _rewardPerBlock: reward per block (in rewardToken)
      * @param _startBlock: start block
-     * @param _bonusEndBlock: end block
+     * @param _rewardsEndBlock: end block
      * @param _poolLimitPerUser: pool limit per user in stakedToken (if any, else 0)
      * @param _admin: admin address with ownership
      */
@@ -1127,12 +1127,14 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         ERC20 _rewardToken,
         uint256 _rewardPerBlock,
         uint256 _startBlock,
-        uint256 _bonusEndBlock,
+        uint256 _rewardsEndBlock,
         uint256 _poolLimitPerUser,
         address _admin
     ) external {
         require(!isInitialized, "Already initialized");
         require(msg.sender == SMART_CRAFT_FACTORY, "Not factory");
+        require(address(_stakedToken) != address(_rewardToken), "Staked token and Reward Token cannot be the same");
+        require(_startBlock <= _rewardsEndBlock, "Startblock must be before rewardsEndBlock");
 
         // Make this contract initialized
         isInitialized = true;
@@ -1141,7 +1143,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         rewardToken = _rewardToken;
         rewardPerBlock = _rewardPerBlock;
         startBlock = _startBlock;
-        bonusEndBlock = _bonusEndBlock;
+        rewardsEndBlock = _rewardsEndBlock;
 
         if (_poolLimitPerUser > 0) {
             hasUserLimit = true;
@@ -1151,7 +1153,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         uint256 decimalsRewardToken = uint256(rewardToken.decimals());
         require(decimalsRewardToken < 36, "Must be inferior to 36");
 
-        PRECISION_FACTOR = uint256(10**(uint256(36).sub(decimalsRewardToken)));
+        PRECISION_FACTOR = 10**(uint256(36).sub(decimalsRewardToken));
 
         // Set the lastRewardBlock as the startBlock
         lastRewardBlock = startBlock;
@@ -1162,7 +1164,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
 
     /*
      * @notice Deposit staked tokens and collect reward tokens (if any)
-     * @param _amount: amount to withdraw (in rewardToken)
+     * @param _amount: amount to withdraw (in stakedToken)
      */
     function deposit(uint256 _amount) external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
@@ -1175,7 +1177,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         if (user.amount > 0) {
             uint256 pending = user.amount.mul(accTokenPerShare).div(PRECISION_FACTOR).sub(user.rewardDebt);
             if (pending > 0) {
-                rewardToken.safeTransfer(address(msg.sender), pending);
+                rewardToken.safeTransfer(_msgSender(), pending);
             }
         }
 
@@ -1191,7 +1193,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
 
     /*
      * @notice Withdraw staked tokens and collect reward tokens
-     * @param _amount: amount to withdraw (in rewardToken)
+     * @param _amount: amount to withdraw (in stakedToken)
      */
     function withdraw(uint256 _amount) external nonReentrant {
         UserInfo storage user = userInfo[msg.sender];
@@ -1216,7 +1218,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     }
 
     /*
-     * @notice Withdraw staked tokens without caring about rewards rewards
+     * @notice Withdraw staked tokens without caring about rewards
      * @dev Needs to be for emergency.
      */
     function emergencyWithdraw() external nonReentrant {
@@ -1247,11 +1249,11 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      * @param _tokenAmount: the number of tokens to withdraw
      * @dev This function is only callable by admin.
      */
-    function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
-        require(_tokenAddress != address(stakedToken), "Cannot be staked token");
-        require(_tokenAddress != address(rewardToken), "Cannot be reward token");
+    function recoverWrongTokens(ERC20 _tokenAddress, uint256 _tokenAmount) external onlyOwner {
+        require(_tokenAddress != stakedToken, "Cannot be staked token");
+        require(_tokenAddress != rewardToken, "Cannot be reward token");
 
-        ERC20(_tokenAddress).safeTransfer(address(msg.sender), _tokenAmount);
+        _tokenAddress.safeTransfer(address(msg.sender), _tokenAmount);
 
         emit AdminTokenRecovery(_tokenAddress, _tokenAmount);
     }
@@ -1261,7 +1263,10 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      * @dev Only callable by owner
      */
     function stopReward() external onlyOwner {
-        bonusEndBlock = block.number;
+        require(block.number < rewardsEndBlock, "Rewards has already ended");
+        rewardsEndBlock = block.number;
+
+        emit RewardsStop(rewardsEndBlock);
     }
 
     /*
@@ -1293,24 +1298,32 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         emit NewRewardPerBlock(_rewardPerBlock);
     }
 
+    function updateRewardPerBlockAfterStart(uint256 _rewardPerBlock) external onlyOwner {
+        require(block.number < rewardsEndBlock, "Pool has already ended");
+
+        _updatePool();
+        rewardPerBlock = _rewardPerBlock;
+        emit NewRewardPerBlock(_rewardPerBlock);
+    }
+
     /**
      * @notice It allows the admin to update start and end blocks
      * @dev This function is only callable by owner.
      * @param _startBlock: the new start block
-     * @param _bonusEndBlock: the new end block
+     * @param _rewardsEndBlock: the new end block
      */
-    function updateStartAndEndBlocks(uint256 _startBlock, uint256 _bonusEndBlock) external onlyOwner {
+    function updateStartAndEndBlocks(uint256 _startBlock, uint256 _rewardsEndBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
-        require(_startBlock < _bonusEndBlock, "New startBlock must be lower than new endBlock");
+        require(_startBlock < _rewardsEndBlock, "New startBlock must be lower than new endBlock");
         require(block.number < _startBlock, "New startBlock must be higher than current block");
 
         startBlock = _startBlock;
-        bonusEndBlock = _bonusEndBlock;
+        rewardsEndBlock = _rewardsEndBlock;
 
         // Set the lastRewardBlock as the startBlock
         lastRewardBlock = startBlock;
 
-        emit NewStartAndEndBlocks(_startBlock, _bonusEndBlock);
+        emit NewStartAndEndBlocks(_startBlock, _rewardsEndBlock);
     }
 
     /*
@@ -1359,12 +1372,12 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      * @param _to: block to finish
      */
     function _getMultiplier(uint256 _fromBlockNumber, uint256 _toBlockNumber) internal view returns (uint256) {
-        if (_toBlockNumber <= bonusEndBlock) {
+        if (_toBlockNumber <= rewardsEndBlock) {
             return _toBlockNumber.sub(_fromBlockNumber);
-        } else if (_fromBlockNumber >= bonusEndBlock) {
+        } else if (_fromBlockNumber >= rewardsEndBlock) {
             return 0;
         } else {
-            return bonusEndBlock.sub(_fromBlockNumber);
+            return rewardsEndBlock.sub(_fromBlockNumber);
         }
     }
 }
