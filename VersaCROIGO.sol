@@ -761,7 +761,7 @@ interface IIGO {
 
     /**
      * @notice It returns the tax overflow rate calculated for a pool
-     * @dev 100,000 means 0.1(10%)/ 1 means 0.000001(0.0001%)/ 1,000,000 means 1(100%)
+     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.000000000001 (0.0000000001%) / 1,000,000,000,000 means 1 (100%)
      * @param _pid: poolId
      * @return It returns the tax percentage
      */
@@ -785,7 +785,7 @@ interface IIGO {
     function viewUserAllocationPools(address _user, uint8[] calldata _pids) external view returns (uint256[] memory);
 
     /**
-     * @notice External view function to see user offering and refunding amounts for both pools
+     * @notice External view function to see user offering, refunding and tax amounts for both pools
      * @param _user: user address
      * @param _pids: array of pids
      */
@@ -800,10 +800,10 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
     using SafeERC20 for IERC20;
 
     // The LP token used
-    IERC20 public lpToken;
+    IERC20 immutable public lpToken;
 
     // The offering token
-    IERC20 public offeringToken;
+    IERC20 immutable public offeringToken;
 
     // Number of pools
     uint8 public constant numberPools = 2;
@@ -843,7 +843,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
     event AdminWithdraw(uint256 amountLP, uint256 amountOfferingToken);
 
     // Admin recovers token
-    event AdminTokenRecovery(address tokenAddress, uint256 amountTokens);
+    event AdminTokenRecovery(IERC20 tokenAddress, uint256 amountTokens);
 
     // Deposit event
     event Deposit(address indexed user, uint8 indexed pid, uint256 amount);
@@ -874,8 +874,6 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
     }
 
     /**
-     * @notice It initializes the contract (for proxy patterns)
-     * @dev It can only be called once.
      * @param _lpToken: the LP token used
      * @param _offeringToken: the token that is offered for the IGO
      * @param _startBlock: the start block for the IGO
@@ -892,6 +890,8 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
         require(_lpToken.totalSupply() >= 0);
         require(_offeringToken.totalSupply() >= 0);
         require(_lpToken != _offeringToken, "Tokens must be be different");
+        require(_startBlock < _endBlock, "StartBlock must be lower endBlock");
+        require(block.number < _startBlock, "StartBlock must be higher than current block");
 
         lpToken = _lpToken;
         offeringToken = _offeringToken;
@@ -925,7 +925,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
         require(_amount > 0, "Amount must be > 0");
 
         // Transfers funds to this contract
-        lpToken.safeTransferFrom(address(msg.sender), address(this), _amount);
+        lpToken.safeTransferFrom(msg.sender, address(this), _amount);
 
         // Update the user status
         _userInfo[msg.sender][_pid].amountPool = _userInfo[msg.sender][_pid].amountPool.add(_amount);
@@ -982,11 +982,11 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
 
         // Transfer these tokens back to the user if quantity > 0
         if (offeringTokenAmount > 0) {
-            offeringToken.safeTransfer(address(msg.sender), offeringTokenAmount);
+            offeringToken.safeTransfer(msg.sender, offeringTokenAmount);
         }
 
         if (refundingTokenAmount > 0) {
-            lpToken.safeTransfer(address(msg.sender), refundingTokenAmount);
+            lpToken.safeTransfer(msg.sender, refundingTokenAmount);
         }
 
         emit Harvest(msg.sender, _pid, offeringTokenAmount, refundingTokenAmount);
@@ -1001,13 +1001,14 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
     function finalWithdraw(uint256 _lpAmount, uint256 _offerAmount) external override onlyOwner {
         require(_lpAmount <= lpToken.balanceOf(address(this)), "Not enough LP tokens");
         require(_offerAmount <= offeringToken.balanceOf(address(this)), "Not enough offering token");
+        require( endBlock.add(100800) < block.number, "Can only use finalWithdraw a week after IGO ends");
 
         if (_lpAmount > 0) {
-            lpToken.safeTransfer(address(msg.sender), _lpAmount);
+            lpToken.safeTransfer(msg.sender, _lpAmount);
         }
 
         if (_offerAmount > 0) {
-            offeringToken.safeTransfer(address(msg.sender), _offerAmount);
+            offeringToken.safeTransfer(msg.sender, _offerAmount);
         }
 
         emit AdminWithdraw(_lpAmount, _offerAmount);
@@ -1019,12 +1020,12 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
      * @param _tokenAmount: the number of token amount to withdraw
      * @dev This function is only callable by admin.
      */
-    function recoverWrongTokens(address _tokenAddress, uint256 _tokenAmount) external onlyOwner {
-        require(_tokenAddress != address(lpToken), "Cannot be LP token");
-        require(_tokenAddress != address(offeringToken), "Cannot be offering token");
-        require(_tokenAmount <= IERC20(_tokenAddress).balanceOf(address(this)), "Cannot recover more than balance");
+    function recoverWrongTokens(IERC20 _tokenAddress, uint256 _tokenAmount) external onlyOwner {
+        require(_tokenAddress != lpToken, "Cannot be LP token");
+        require(_tokenAddress != offeringToken, "Cannot be offering token");
+        require(_tokenAmount <= _tokenAddress.balanceOf(address(this)), "Cannot recover more than balance");
 
-        IERC20(_tokenAddress).safeTransfer(address(msg.sender), _tokenAmount);
+        _tokenAddress.safeTransfer(msg.sender, _tokenAmount);
 
         emit AdminTokenRecovery(_tokenAddress, _tokenAmount);
     }
@@ -1122,7 +1123,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
 
     /**
      * @notice It returns the tax overflow rate calculated for a pool
-     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.0000000000001 (0.0000001%) / 1,000,000,000,000 means 1 (100%)
+     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.000000000001 (0.0000000001%) / 1,000,000,000,000 means 1 (100%)
      * @param _pid: poolId
      * @return It returns the tax percentage
      */
@@ -1176,7 +1177,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
     }
 
     /**
-     * @notice External view function to see user offering and refunding amounts for both pools
+     * @notice External view function to see user offering, refunding and tax amounts for both pools
      * @param _user: user address
      * @param _pids: array of pids
      */
@@ -1208,7 +1209,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
 
     /**
      * @notice It calculates the tax overflow given the raisingAmountPool and the totalAmountPool.
-     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.0000000000001 (0.0000001%) / 1,000,000,000,000 means 1 (100%)
+     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.000000000001 (0.0000000001%) / 1,000,000,000,000 means 1 (100%)
      * @return It returns the tax percentage
      */
     function _calculateTaxOverflow(uint256 _totalAmountPool, uint256 _raisingAmountPool)
@@ -1253,13 +1254,14 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
 
         if (_poolInformation[_pid].totalAmountPool > _poolInformation[_pid].raisingAmountPool) {
             // Calculate allocation for the user
-            uint256 allocation = _getUserAllocationPool(_user, _pid);
+
+            uint256 allocation = _userInfo[_user][_pid].amountPool.div(_poolInformation[_pid].totalAmountPool);
 
             // Calculate the offering amount for the user based on the offeringAmount for the pool
-            userOfferingAmount = _poolInformation[_pid].offeringAmountPool.mul(allocation).div(1e12);
+            userOfferingAmount = _poolInformation[_pid].offeringAmountPool.mul(allocation);
 
             // Calculate the payAmount
-            uint256 payAmount = _poolInformation[_pid].raisingAmountPool.mul(allocation).div(1e12);
+            uint256 payAmount = _poolInformation[_pid].raisingAmountPool.mul(allocation);
 
             // Calculate the pre-tax refunding amount
             userRefundingAmount = _userInfo[_user][_pid].amountPool.sub(payAmount);
@@ -1273,7 +1275,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
                     );
 
                 // Calculate the final taxAmount
-                taxAmount = userRefundingAmount.mul(taxOverflow).div(1e12);
+                taxAmount = userRefundingAmount.mul(taxOverflow);
 
                 // Adjust the refunding amount
                 userRefundingAmount = userRefundingAmount.sub(taxAmount);
@@ -1291,14 +1293,14 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
 
     /**
      * @notice It returns the user allocation for pool
-     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.0000000000001 (0.0000001%) / 1,000,000,000,000 means 1 (100%)
+     * @dev 100,000,000,000 means 0.1 (10%) / 1 means 0.000000000001 (0.0000000001%) / 1,000,000,000,000 means 1 (100%)
      * @param _user: user address
      * @param _pid: pool id
      * @return it returns the user's share of pool
      */
     function _getUserAllocationPool(address _user, uint8 _pid) internal view returns (uint256) {
         if (_poolInformation[_pid].totalAmountPool > 0) {
-            return _userInfo[_user][_pid].amountPool.mul(1e18).div(_poolInformation[_pid].totalAmountPool.mul(1e6));
+            return _userInfo[_user][_pid].amountPool.mul(1e12).div(_poolInformation[_pid].totalAmountPool);
         } else {
             return 0;
         }
