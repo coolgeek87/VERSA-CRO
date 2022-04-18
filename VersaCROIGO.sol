@@ -1253,15 +1253,11 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
         uint256 taxAmount;
 
         if (_poolInformation[_pid].totalAmountPool > _poolInformation[_pid].raisingAmountPool) {
-            // Calculate allocation for the user
-
-            uint256 allocation = _userInfo[_user][_pid].amountPool.div(_poolInformation[_pid].totalAmountPool);
-
-            // Calculate the offering amount for the user based on the offeringAmount for the pool
-            userOfferingAmount = _poolInformation[_pid].offeringAmountPool.mul(allocation);
+              // Calculate the offering amount for the user based on the offeringAmount for the pool
+            userOfferingAmount = _poolInformation[_pid].offeringAmountPool.mul(_userInfo[_user][_pid].amountPool).div(_poolInformation[_pid].totalAmountPool);
 
             // Calculate the payAmount
-            uint256 payAmount = _poolInformation[_pid].raisingAmountPool.mul(allocation);
+            uint256 payAmount = _poolInformation[_pid].raisingAmountPool.mul(_userInfo[_user][_pid].amountPool).div(_poolInformation[_pid].totalAmountPool);
 
             // Calculate the pre-tax refunding amount
             userRefundingAmount = _userInfo[_user][_pid].amountPool.sub(payAmount);
@@ -1275,7 +1271,7 @@ contract IGO is IIGO, ReentrancyGuard, Ownable {
                     );
 
                 // Calculate the final taxAmount
-                taxAmount = userRefundingAmount.mul(taxOverflow);
+                taxAmount = userRefundingAmount.mul(taxOverflow).div(1e12);
 
                 // Adjust the refunding amount
                 userRefundingAmount = userRefundingAmount.sub(taxAmount);
