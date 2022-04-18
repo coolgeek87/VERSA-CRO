@@ -1177,13 +1177,13 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         if (user.amount > 0) {
             uint256 pending = user.amount.mul(accTokenPerShare).div(PRECISION_FACTOR).sub(user.rewardDebt);
             if (pending > 0) {
-                rewardToken.safeTransfer(_msgSender(), pending);
+                rewardToken.safeTransfer(msg.sender, pending);
             }
         }
 
         if (_amount > 0) {
             user.amount = user.amount.add(_amount);
-            stakedToken.safeTransferFrom(address(msg.sender), address(this), _amount);
+            stakedToken.safeTransferFrom(msg.sender, address(this), _amount);
         }
 
         user.rewardDebt = user.amount.mul(accTokenPerShare).div(PRECISION_FACTOR);
@@ -1205,11 +1205,11 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
 
         if (_amount > 0) {
             user.amount = user.amount.sub(_amount);
-            stakedToken.safeTransfer(address(msg.sender), _amount);
+            stakedToken.safeTransfer(msg.sender, _amount);
         }
 
         if (pending > 0) {
-            rewardToken.safeTransfer(address(msg.sender), pending);
+            rewardToken.safeTransfer(msg.sender, pending);
         }
 
         user.rewardDebt = user.amount.mul(accTokenPerShare).div(PRECISION_FACTOR);
@@ -1228,7 +1228,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         user.rewardDebt = 0;
 
         if (amountToTransfer > 0) {
-            stakedToken.safeTransfer(address(msg.sender), amountToTransfer);
+            stakedToken.safeTransfer(msg.sender, amountToTransfer);
         }
 
         emit EmergencyWithdraw(msg.sender, amountToTransfer);
@@ -1239,7 +1239,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      * @dev Only callable by owner. Needs to be for emergency.
      */
     function emergencyRewardWithdraw(uint256 _amount) external onlyOwner {
-        rewardToken.safeTransfer(address(msg.sender), _amount);
+        rewardToken.safeTransfer(msg.sender, _amount);
         emit EmergencyRewardWithdraw(msg.sender, _amount);
     }
 
@@ -1253,7 +1253,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         require(_tokenAddress != stakedToken, "Cannot be staked token");
         require(_tokenAddress != rewardToken, "Cannot be reward token");
 
-        _tokenAddress.safeTransfer(address(msg.sender), _tokenAmount);
+        _tokenAddress.safeTransfer(msg.sender, _tokenAmount);
 
         emit AdminTokenRecovery(_tokenAddress, _tokenAmount);
     }
