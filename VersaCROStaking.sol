@@ -1081,7 +1081,10 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     // Reward tokens per block.
     uint256 public rewardPerBlock;
 
-    // The precision factor
+    // Max cap reward tokens per block.
+    uint256 immutable public MaxCapRewardPerBlock;
+
+     // The precision factor
     uint256 public PRECISION_FACTOR;
 
     // The reward token
@@ -1108,8 +1111,9 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     event RewardsStop(uint256 blockNumber);
     event Withdraw(address indexed user, uint256 amount);
 
-    constructor() public {
+    constructor(uint256 _maxCapRewardPerBlock) public {
         SMART_CRAFT_FACTORY = msg.sender;
+        MaxCapRewardPerBlock = _maxCapRewardPerBlock;
     }
 
     /*
@@ -1135,6 +1139,7 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         require(msg.sender == SMART_CRAFT_FACTORY, "Not factory");
         require(address(_stakedToken) != address(_rewardToken), "Staked token and Reward Token cannot be the same");
         require(_startBlock <= _rewardsEndBlock, "Startblock must be before rewardsEndBlock");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Reward per block can't be more than the max cap");
 
         // Make this contract initialized
         isInitialized = true;
@@ -1294,12 +1299,14 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      */
     function updateRewardPerBlock(uint256 _rewardPerBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Can't increase rewards more than the max cap");
         rewardPerBlock = _rewardPerBlock;
         emit NewRewardPerBlock(_rewardPerBlock);
     }
 
     function updateRewardPerBlockAfterStart(uint256 _rewardPerBlock) external onlyOwner {
         require(block.number < rewardsEndBlock, "Pool has already ended");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Can't increase rewards more than the max cap");
 
         _updatePool();
         rewardPerBlock = _rewardPerBlock;
