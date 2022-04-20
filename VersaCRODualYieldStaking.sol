@@ -1083,6 +1083,10 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     uint256 public rewardPerBlock;
     uint256 public reward2PerBlock;
 
+    // Max cap reward tokens per block.
+    uint256 immutable public MaxCapRewardPerBlock;
+    uint256 immutable public MaxCapReward2PerBlock;
+
     // The precision factor
     uint256 public PRECISION_FACTOR;
     uint256 public PRECISION_FACTOR2;
@@ -1116,8 +1120,10 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
     event RewardsStop(uint256 blockNumber);
     event Withdraw(address indexed user, uint256 amount);
 
-    constructor() public {
+    constructor(uint256 _maxCapRewardPerBlock, uint256 _maxCapReward2PerBlock) public {
         SMART_CRAFT_FACTORY = msg.sender;
+        MaxCapRewardPerBlock = _maxCapRewardPerBlock;
+        MaxCapReward2PerBlock = _maxCapReward2PerBlock;
     }
 
     /*
@@ -1149,6 +1155,8 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
         require(address(_stakedToken) != address(_reward2Token), "Staked Token and Reward2 Token cannot be the same");
         require(address(_rewardToken) != address(_reward2Token), "Reward Token and Reward2 Token cannot be the same");
         require(_startBlock <= _rewardsEndBlock, "Startblock must be before rewardsEndBlock");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Reward per block can't be more than the max cap");
+        require(_reward2PerBlock <= MaxCapReward2PerBlock, "Reward2 per block can't be more than the max cap");
 
         // Make this contract initialized
         isInitialized = true;
@@ -1331,18 +1339,22 @@ contract SmartCraftInitializable is Ownable, ReentrancyGuard {
      */
     function updateRewardPerBlock(uint256 _rewardPerBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Can't increase rewards more than the max cap");
         rewardPerBlock = _rewardPerBlock;
         emit NewRewardPerBlock(_rewardPerBlock);
     }
 
     function updateReward2PerBlock(uint256 _reward2PerBlock) external onlyOwner {
         require(block.number < startBlock, "Pool has started");
+        require(_reward2PerBlock <= MaxCapReward2PerBlock, "Can't increase rewards more than the max cap");
         reward2PerBlock = _reward2PerBlock;
         emit NewReward2PerBlock(_reward2PerBlock);
     }
 
     function updateRewardPerBlockAfterStart(uint256 _rewardPerBlock, uint256 _reward2PerBlock) external onlyOwner {
         require(block.number < rewardsEndBlock, "Pool has already ended");
+        require(_rewardPerBlock <= MaxCapRewardPerBlock, "Can't increase rewards more than the max cap");
+        require(_reward2PerBlock <= MaxCapReward2PerBlock, "Can't increase reward2 more than the max cap");
 
         _updatePool();
         rewardPerBlock = _rewardPerBlock;
